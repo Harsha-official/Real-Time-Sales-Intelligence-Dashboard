@@ -1,11 +1,12 @@
-# Real-Time Sales Intelligence Dashboard
+# 📊 Real-Time Sales Intelligence Dashboard
 
 A full-stack business intelligence project that simulates live sales transactions,
-stores them in MySQL, and visualizes real-time KPIs in Power BI with automated alerts.
+stores them in MySQL, visualizes real-time KPIs in Power BI, and sends automated
+alerts via Power Automate.
 
 ---
 
-##  Project Structure
+## Project Structure
 
 ```
 SalesDashboard/
@@ -22,86 +23,121 @@ SalesDashboard/
 
 ```
 [Python Simulator]
-      │  Inserts sale every 5 seconds
+      │  Inserts 3-5 sales every 5 seconds
       ▼
-[MySQL Database]  ←── SalesDashboard schema
-      │  Tables: Sales, Products, Customers, SalesReps, Targets
-      │  Views:  vw_DailySalesSummary, vw_RepPerformance, vw_TodayKPI
+[MySQL Database — SalesDashboard]
+      │  Tables:  Sales, Products, Customers, SalesReps, Targets
+      │  Views:   vw_DailySalesSummary, vw_RepPerformance, vw_TodayKPI
+      │  Indexes: 5 indexes for fast query performance
       ▼
 [Power BI Desktop]
-      │  DirectQuery (live, no import)
-      │  DAX measures + interactive visuals
+      │  Import Mode + Manual/Scheduled Refresh
+      │  8 DAX Measures + 6 Visuals
       ▼
-[Power BI Service]
+[Power BI Service — app.powerbi.com]
       │  Published dashboard
+      │  Data alerts configured on Total Revenue tile
       ▼
 [Power Automate]
-      └── Email/Teams alert when KPI drops below threshold
+      ├── Flow 1: Revenue Alert (Recurrence → Query → Condition → Email)
+      └── Flow 2: Weekly PDF Report (Scheduled → Export → Email)
 ```
 
 ---
 
 ## ⚙️ Tech Stack
 
-| Layer          | Technology                        |
-|----------------|-----------------------------------|
-| Database       | MySQL 8.0+                        |
-| Data Simulator | Python 3.x                        |
-| BI Tool        | Power BI Desktop & Service        |
-| Automation     | Power Automate                    |
+| Layer          | Technology                              |
+|----------------|-----------------------------------------|
+| Database       | MySQL 8.0+ / MySQL Workbench            |
+| Data Simulator | Python 3.x                              |
+| BI Tool        | Power BI Desktop + Power BI Service     |
+| Automation     | Power Automate                          |
 | Libraries      | mysql-connector-python, faker, schedule |
 
 ---
 
-## Setup Guide
+##  Setup Guide
 
 ### Prerequisites
-- MySQL 8.0+ installed and running
+- MySQL 8.0+ installed and running locally
 - MySQL Workbench
 - Python 3.8+
-- Power BI Desktop (free)
-- MySQL Connector/NET for Power BI
+- Power BI Desktop (free download from Microsoft)
+- Microsoft account (for Power BI Service + Power Automate)
 
 ---
 
-### Step 1 — Database Setup
+### Phase 1 — Database Setup
 
 1. Open **MySQL Workbench**
-2. Connect to your local server (`127.0.0.1:3306`)
+2. Connect to local server (`127.0.0.1:3306`)
 3. Open `sales_dashboard_mysql.sql`
-4. Execute the script (`Ctrl + Shift + Enter`)
+4. Execute the full script (`Ctrl + Shift + Enter`)
 
 This creates:
 - **5 tables**: Products, Customers, SalesReps, Targets, Sales
 - **3 views**: vw_DailySalesSummary, vw_RepPerformance, vw_TodayKPI
-- **5 indexes** for fast DirectQuery performance
+- **5 indexes** for DirectQuery performance
+- **1 stored procedure**: sp_GenerateSampleSales
 - **2,000 rows** of historical sample data (last 90 days)
 
-Verify setup:
+Verify setup in MySQL Workbench:
 ```sql
 USE SalesDashboard;
+
+-- Check row counts
+SELECT 'Products'  AS TableName, COUNT(*) AS Rows FROM Products  UNION ALL
+SELECT 'Customers'             , COUNT(*) FROM Customers UNION ALL
+SELECT 'SalesReps'             , COUNT(*) FROM SalesReps UNION ALL
+SELECT 'Targets'               , COUNT(*) FROM Targets   UNION ALL
+SELECT 'Sales'                 , COUNT(*) FROM Sales;
+
+-- Check views
 SELECT * FROM vw_TodayKPI;
 SELECT * FROM vw_DailySalesSummary ORDER BY SaleDay DESC LIMIT 5;
+SELECT RepName, ActualRevenue, RevenueTarget, TargetAchievedPct
+FROM vw_RepPerformance ORDER BY TargetAchievedPct DESC;
 ```
 
 ---
 
-### Step 2 — Python Simulator
+### Phase 2 — Python Data Simulator
 
 **Install dependencies:**
 ```bash
 pip install mysql-connector-python faker schedule
 ```
 
-**Update credentials** in `Sales.py` (line ~40):
+**Update credentials** in `Sales.py`:
 ```python
 DB_CONFIG = {
-    "host"    : "127.0.0.1",
+    "host"    : "127.0.0.1",       # use IP not localhost
     "port"    : 3306,
     "user"    : "root",
-    "password": "your_password",    # ← your MySQL root password
-    "database": "SalesDashboard"
+    "password": "your_password",    # your MySQL root password
+    "database": "SalesDashboard"    # exact database name
 }
+```
+
+**Fix for Windows encoding (add at top of file):**
+```python
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
+```
+
+**Fix for MySQL Decimal type error:**
+```python
+# When fetching product prices, convert Decimal to float
+products = [
+    {
+        "ProductID" : r["ProductID"],
+        "UnitPrice" : float(r["UnitPrice"]),   # must convert!
+        "CostPrice" : float(r["CostPrice"])    # must convert!
+    }
+    for r in raw
+]
 ```
 
 **Run the simulator:**
@@ -117,134 +153,214 @@ Expected output:
 [OK]    Sale inserted | ProductID=1 | Qty=1 | Price=1289.99 | Channel=Direct
 ```
 
-The simulator inserts **3–5 sales every 5 seconds**, with:
-- Higher volume during peak hours (10am–4pm)
-- Weighted realistic status: 70% Completed, 20% Pending, 10% Returned
-- Random channels: Direct, Online, Partner
+Simulator features:
+- Inserts **3–5 sales every 5 seconds**
+- **Peak hours** (10am–4pm): higher volume (qty 3–15)
+- **Slow hours** (midnight–6am): lower volume (qty 1–3)
+- Weighted status: 70% Completed, 20% Pending, 10% Returned
+- Random channels: 50% Direct, 30% Online, 20% Partner
 - ±5% price variation per transaction
+- Auto-reconnect if MySQL connection drops
+- Logs to both console and `simulator.log`
 
 ---
 
-### Step 3 — Power BI Dashboard
+### Phase 3 — Power BI Dashboard
 
 **Connect to MySQL:**
-1. Open Power BI Desktop
-2. Home → Get Data → MySQL Database
-3. Server: `127.0.0.1` | Database: `SalesDashboard`
-4. Mode: **DirectQuery**
-5. Load these views:
-   - `vw_DailySalesSummary`
-   - `vw_RepPerformance`
-   - `vw_TodayKPI`
-   - `Targets`
+```
+Home → Get Data → MySQL Database
+Server:   127.0.0.1
+Database: SalesDashboard
+Mode:     Import  (DirectQuery requires ODBC driver)
+```
 
-**Create DAX Measures** (right-click each table → New Measure):
+**Load these tables/views:**
+```
+☑ vw_dailysalessummary    → main charts
+☑ vw_repperformance       → rep performance table
+☑ vw_todaykpi             → today's KPI cards
+☑ targets                 → monthly targets
+```
+
+**Create DAX Measures:**
+
+Right-click `salesdashboard vw_dailysalessummary` → New Measure
+(create in this exact order):
 
 ```dax
--- From vw_DailySalesSummary
-Total Revenue        = SUM([TotalRevenue])
-Total Profit         = SUM([TotalProfit])
-Total Orders         = SUM([TotalOrders])
-Total Units Sold     = SUM([TotalUnits])
-Profit Margin %      = DIVIDE([Total Profit], [Total Revenue], 0) * 100
-Avg Order Value      = DIVIDE([Total Revenue], [Total Orders], 0)
+-- Step 1: Base measures first
+Total Revenue = SUM('salesdashboard vw_dailysalessummary'[TotalRevenue])
 
--- From Targets
-Total Target Revenue = SUM([RevenueTarget])
+Total Profit = SUM('salesdashboard vw_dailysalessummary'[TotalProfit])
+
+Total Orders = SUM('salesdashboard vw_dailysalessummary'[TotalOrders])
+
+Total Units Sold = SUM('salesdashboard vw_dailysalessummary'[TotalUnits])
+
+-- Step 2: Calculated measures (after base measures exist)
+Profit Margin % = DIVIDE([Total Profit], [Total Revenue], 0) * 100
+
+Avg Order Value = DIVIDE([Total Revenue], [Total Orders], 0)
+```
+
+Right-click `salesdashboard targets` → New Measure:
+```dax
+Total Target Revenue = SUM('salesdashboard targets'[RevenueTarget])
+
 Target Achievement % = DIVIDE([Total Revenue], [Total Target Revenue], 0) * 100
 ```
 
-**Dashboard visuals to build:**
+**Dashboard Visuals:**
 
-| Visual            | Type             | Fields                              |
-|-------------------|------------------|-------------------------------------|
-| Revenue KPI       | Card             | Total Revenue                       |
-| Orders KPI        | Card             | Total Orders                        |
-| Profit Margin KPI | Card             | Profit Margin %                     |
-| Target KPI        | Card             | Target Achievement %                |
-| Revenue Trend     | Line Chart       | X: SaleDay, Y: Total Revenue        |
-| Revenue by Category| Bar Chart       | Y: Category, X: Total Revenue       |
-| Rep Performance   | Table            | RepName, ActualRevenue, TargetAchievedPct |
-| Sales by Region   | Donut Chart      | Legend: Region, Values: Total Revenue |
-| Top Products      | Bar Chart        | Y: SubCategory, X: Total Revenue    |
-| Region Filter     | Slicer           | Region                              |
+| Visual | Type | Fields |
+|--------|------|--------|
+| Revenue KPI | Card | Total Revenue |
+| Avg Order Value KPI | Card | Avg Order Value |
+| Profit Margin KPI | Card | Profit Margin % |
+| Total Orders KPI | Card | Total Orders |
+| Revenue Trend | Line Chart | X: SaleDay, Y: Total Revenue, Legend: Channel |
+| Revenue by Category | Bar Chart | Y: Category, X: Total Revenue, Legend: SubCategory |
+| Rep Performance | Table | RepName, ActualRevenue, RevenueTarget, TargetAchievedPct |
+| Sales by Region | Donut Chart | Legend: Region, Values: Total Revenue |
+| Region Filter | Slicer | Region (Dropdown style) |
 
-**Enable Auto Page Refresh:**
+**Enable Refresh:**
 ```
-Format panel → Page refresh → ON → 5 seconds
+Home → Refresh (manual, press F5)
+OR
+Format panel → Page refresh → ON → 30 seconds (Import mode)
+```
+
+**Publish to Power BI Service:**
+```
+Home → Publish → My Workspace → Select → wait for Success
+→ Click "Open in Power BI" link
 ```
 
 ---
 
-### Step 4 — Power Automate Alerts
+### Phase 4 — Power Automate Alerts
 
-1. Go to **powerautomate.microsoft.com**
-2. Create a new flow: **Scheduled → Recurrence (every 1 hour)**
-3. Add action: **Power BI → Get dataset**
-4. Add condition: `RevenueToday < DailyTarget`
-5. If yes → **Send Email / Teams notification**
+#### Set Up Power BI Data Alert First
+```
+app.powerbi.com → My Workspace
+→ Pin "Total Revenue" card to a new Dashboard
+→ Open Dashboard → click Revenue tile
+→ Bell icon  → Add alert rule
+→ Condition: Less than
+→ Value: 500000
+→ Send email notification: ON
+→ Save and close
+```
 
-Alert triggers:
-- Daily revenue drops 20% below target
-- Return rate exceeds 15%
-- Top rep falls below 50% target achievement
+#### Flow 1 — Revenue Alert (Recurrence-based)
+
+Go to `powerautomate.microsoft.com`:
+```
+Create → Scheduled cloud flow
+Name: Sales Revenue Alert
+Repeat: Every 1 Hour
+
+Step 1: Power BI → "Run a query against a dataset"
+  Workspace:  My Workspace
+  Dataset:    Sales
+  Query text: EVALUATE ROW("Revenue", [Total Revenue])
+
+Step 2: Control → Condition
+  Left:     [Revenue] (dynamic content from Step 1)
+  Operator: is less than
+  Right:    500000
+
+  If YES → Office 365 Outlook → Send an email (V2)
+    To:      your-email@outlook.com
+    Subject: ALERT - Sales Revenue Below Target!
+    Body:    Revenue has dropped below Rs.5,00,000!
+             Check dashboard: https://app.powerbi.com
+
+Save → Turn on
+```
+
+#### Flow 2 — Weekly PDF Report
+
+```
+Create → Scheduled cloud flow
+Name: Weekly Sales PDF Report
+Repeat: Every 1 Week → Monday → 8:00 AM
+
+Step 1: Power BI → "Export To File for Reports"
+  Workspace: My Workspace
+  Report:    Sales
+  Format:    PDF
+
+Step 2: Office 365 Outlook → Send an email (V2)
+  To:                  your-email@outlook.com
+  Subject:             Weekly Sales Report
+  Body:                Please find this week's sales report attached.
+  Attachments Name:    SalesReport.pdf
+  Attachments Content: [File Content] from Step 1
+
+Save → Turn on
+```
 
 ---
 
-## 📊 Database Schema
+##  Troubleshooting
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `Unknown database 'sales'` | Wrong DB name in config | Change to `SalesDashboard` |
+| `TypeError: decimal × float` | MySQL DECIMAL vs Python float | Wrap with `float()` when fetching |
+| Emoji crash on Windows | Default cp1252 encoding | Add `sys.stdout.reconfigure(encoding='utf-8')` |
+| Power BI measure not found | Wrong table or wrong order | Right-click correct table → New Measure, create base measures first |
+| DirectQuery not available | MySQL connector limitation | Use Import mode + scheduled refresh |
+| Power Automate 401 Unauthorized | Account mismatch | Use same Microsoft account for Power BI and Power Automate |
+| Flow trigger not firing | Alert not linked | Use Recurrence trigger + Power BI query instead |
+| Gmail connector 404 error | Free account limitation | Use Office 365 Outlook connector instead |
+
+---
+
+##  Database Schema
 
 ```
 Products ──┐
-           ├──► Sales (fact table)  ◄── SalesReps ──► Targets
+           ├──► Sales (fact table) ◄── SalesReps ──► Targets
 Customers ─┘
 ```
 
-**Sales table computed columns:**
-- `Revenue = Quantity × UnitPrice × (1 - Discount)`
-- `Profit  = Quantity × (UnitPrice × (1 - Discount) - CostPrice)`
+**Sales table generated columns (auto-calculated by MySQL):**
+```sql
+Revenue = Quantity × UnitPrice × (1 - Discount)   [STORED]
+Profit  = Quantity × (UnitPrice × (1 - Discount) - CostPrice)  [STORED]
+```
+
+**Views summary:**
+| View | Purpose | Used in |
+|------|---------|---------|
+| vw_DailySalesSummary | Joins all tables, groups by day/category/region | Main dashboard charts |
+| vw_RepPerformance | Actual vs target per rep per month | Rep performance table |
+| vw_TodayKPI | Today's orders, revenue, profit, returns | KPI cards + Automate alerts |
 
 ---
 
-## 📈 Dashboard KPIs Tracked
+##  KPIs Tracked
 
-| KPI                  | Description                          |
-|----------------------|--------------------------------------|
-| Total Revenue        | Sum of all completed sales revenue   |
-| Total Profit         | Net profit after cost deduction      |
-| Profit Margin %      | Profit as % of Revenue               |
-| Target Achievement % | Actual revenue vs monthly target     |
-| Avg Order Value      | Revenue divided by number of orders  |
-| Returns Count        | Number of returned transactions      |
-| Revenue by Region    | North / South / East / West split    |
-| Rep Performance      | Individual rep vs target comparison  |
-
----
-
-## 🔧 Troubleshooting
-
-| Error | Fix |
-|-------|-----|
-| `Unknown database 'sales'` | Change `database` to `SalesDashboard` in DB_CONFIG |
-| `TypeError: decimal × float` | Wrap fetched prices with `float()` in `fetch_dimensions()` |
-| Emoji crash on Windows | Add `sys.stdout.reconfigure(encoding='utf-8')` at top of file |
-| Power BI table not found | Right-click table in Data panel → New Measure (avoids name issues) |
-| DirectQuery slow | Ensure indexes exist; use views not raw tables |
+| KPI | Description |
+|-----|-------------|
+| Total Revenue | Sum of all completed sales revenue |
+| Total Profit | Net profit after cost deduction |
+| Profit Margin % | Profit as % of Revenue |
+| Avg Order Value | Revenue ÷ number of orders |
+| Target Achievement % | Actual revenue vs monthly target |
+| Total Orders | Count of all transactions |
+| Revenue by Region | North / South / East / West split |
+| Rep Performance | Individual rep vs target comparison |
 
 ---
 
-##  Resume Highlights
 
-- Built a **real-time data pipeline** ingesting live sales into MySQL every 5 seconds
-- Designed a **normalized relational schema** with computed columns and optimized indexes
-- Connected Power BI via **DirectQuery** for zero-latency live dashboards
-- Created **8 DAX measures** for KPI tracking including target vs actual analysis
-- Implemented **automated alerting** via Power Automate for revenue threshold breaches
-- Simulated **realistic business data** with peak-hour patterns and weighted distributions
+## 👤 Author
 
----
-
-##  Author
-
-**Harsh**  
-Real-Time Sales Intelligence Dashboard  
+**Harsh (Sudi Reddy Harsha)**
+Real-Time Sales Intelligence Dashboard
 Built with MySQL · Python · Power BI · Power Automate
