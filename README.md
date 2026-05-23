@@ -3,7 +3,7 @@
 <img width="98" height="28" alt="image" src="https://github.com/user-attachments/assets/9b7b5b01-4134-4ee2-a100-9378d6abce2c" />
 
 
-A full-stack business intelligence project that simulates live sales transactions,
+business intelligence project that simulates live sales transactions,
 stores them in MySQL, visualizes real-time KPIs in Power BI, and sends automated
 alerts via Power Automate.
 
