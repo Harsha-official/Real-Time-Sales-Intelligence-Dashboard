@@ -1,6 +1,8 @@
 #  Real-Time Sales Intelligence Dashboard
 <img width="92" height="28" alt="image" src="https://github.com/user-attachments/assets/6dc5b6bf-b70a-4814-9ad0-f1e37ab11617" />
 <img width="98" height="28" alt="image" src="https://github.com/user-attachments/assets/9b7b5b01-4134-4ee2-a100-9378d6abce2c" />
+<img width="88" height="28" alt="image" src="https://github.com/user-attachments/assets/5c9a2b0c-47cf-41d2-9e2a-4fe0780491de" />
+
 
 
 business intelligence project that simulates live sales transactions,
@@ -362,8 +364,3 @@ Profit  = Quantity × (UnitPrice × (1 - Discount) - CostPrice)  [STORED]
 ---
 
 
-## 👤 Author
-
-**Harsh (Sudi Reddy Harsha)**
-Real-Time Sales Intelligence Dashboard
-Built with MySQL · Python · Power BI · Power Automate
