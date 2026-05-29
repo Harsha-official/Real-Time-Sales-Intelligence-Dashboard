@@ -9,6 +9,9 @@ business intelligence project that simulates live sales transactions,
 stores them in MySQL, visualizes real-time KPIs in Power BI, and sends automated
 alerts via Power Automate.
 
+<img width="1134" height="644" alt="image" src="https://github.com/user-attachments/assets/11fb2eca-e21b-4290-b0c9-e504d97d700a" />
+
+
 ---
 
 ## Project Structure
@@ -362,5 +365,7 @@ Profit  = Quantity × (UnitPrice × (1 - Discount) - CostPrice)  [STORED]
 | Rep Performance | Individual rep vs target comparison |
 
 ---
+
+
 
 
