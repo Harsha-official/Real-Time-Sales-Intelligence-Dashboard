@@ -14,7 +14,7 @@ alerts via Power Automate.
 
 ---
 
-##  Structure
+## Project Structure
 
 ```
 SalesDashboard/
